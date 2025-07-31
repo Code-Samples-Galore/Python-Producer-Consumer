@@ -1,8 +1,9 @@
 import typer
 from typing_extensions import Annotated
-from enum import Enum
+from enum import StrEnum
 
-class VariantChoice(str, Enum):
+
+class VariantChoice(StrEnum):
     single = "single"
     consumer_multi = "consumer-multi"
     producer_multi = "producer-multi"
