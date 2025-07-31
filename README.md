@@ -4,11 +4,11 @@ This project demonstrates different approaches to multithreading and multiproces
 
 ## Project Structure
 - `main.py`: Entry point for running the project.
-- `single_threaded.py`: Single-threaded implementation.
-- `multi_threaded.py`: Multi-threaded implementation.
+- `single_threaded.py`: Single-threaded implementation of both producer and consumer.
+- `multi_threaded.py`: Multi-threaded implementation of both producer and consumer.
 - `only_workers.py`: Worker-only threading example.
-- `producer_multi_threaded.py`: Multi-threaded producer example.
-- `consumer_multi_threaded.py`: Multi-threaded consumer example.
+- `producer_multi_threaded.py`: Multi-threaded producer and single threaded consumer example.
+- `consumer_multi_threaded.py`: Multi-threaded consumer and single threaded producer example.
 - `logs/`: Contains log files for each worker and process.
 - `requirements.txt`: Python dependencies.
 
@@ -19,7 +19,7 @@ This project demonstrates different approaches to multithreading and multiproces
    ```
 2. Run any of the scripts, for example:
    ```bash
-   python main.py
+   python main.py run multi-threaded
    ```
    or
    ```bash
@@ -31,7 +31,3 @@ Each script writes logs to the `logs/` directory, with separate log files for ea
 
 ## Requirements
 - Python 3.12 or higher
-
-## License
-MIT License
-
