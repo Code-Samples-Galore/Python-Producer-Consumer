@@ -37,9 +37,8 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
         try:
             task = task_queue.get(timeout=0.1)
         except queue.Empty:
-            logger.debug(f"Worker {worker_id} found no tasks in queue, waiting...")
-            time.sleep(1)
-            continue
+            logger.debug(f"Worker {worker_id} found no tasks in queue...")
+            break
 
         worker_logger.debug(f"Worker {worker_id} processing task {task}")
         # Simulate work for this task
@@ -55,7 +54,7 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
         worker_logger.debug(f"Worker {worker_id} completed task {task}")
 
     worker_logger.info(f"Worker {worker_id} stopping after completing {completed_tasks} tasks")
-    return f"Worker {worker_id} completed {completed_tasks} tasks"
+    return completed_tasks
 
 def main(num_workers: int = 4):
     global progress_instance
@@ -104,37 +103,37 @@ def main(num_workers: int = 4):
             # Start worker threads using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 # Start all worker threads
-                worker_futures = []
+                worker_futures = {}
                 for i in range(num_workers):
                     future = executor.submit(worker, i+1, task_queue, progress, worker_task_ids[i])
-                    worker_futures.append(future)
+                    worker_futures[i+1] = future
 
                 # Wait for all workers to complete or shutdown signal
-                results = []
-                for future in worker_futures:
+                results = {}
+                for worker_id, future in worker_futures.items():
                     try:
                         # Use a short timeout to check for shutdown periodically
                         result = future.result(timeout=0.5)
-                        results.append(result)
+                        results[worker_id] = result
                     except TimeoutError:
                         # If shutdown was signaled, still try to get the result
                         if shutdown_event.is_set():
                             try:
                                 result = future.result(timeout=1.0)  # Give it a bit more time
-                                results.append(result)
+                                results[worker_id] = result
                             except TimeoutError:
-                                results.append(f"Worker timed out during shutdown")
+                                results[worker_id] = "Worker timed out during shutdown"
                         else:
                             # Continue waiting if no shutdown signal
                             result = future.result()
-                            results.append(result)
+                            results[worker_id] = result
 
         # Clear the global reference
         progress_instance = None
 
         # Log results after Progress context exits to avoid interference
-        for result in results:
-            logger.info(f"Worker result: {result}")
+        for worker_id, result in results.items():
+            logger.info(f"Worker {worker_id} result: {result}")
         logger.info("All tasks completed!")
 
     except KeyboardInterrupt:

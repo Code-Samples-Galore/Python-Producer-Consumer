@@ -66,7 +66,7 @@ def consumer_worker(worker_id: int, task_queue: queue.Queue, progress: Progress,
     # Remove the worker's log handler when done
     logger.remove(worker_log_id)
 
-    return f"Consumer-Worker-{worker_id} completed {completed_tasks} tasks"
+    return completed_tasks
 
 def producer_worker(worker_id: int, task_queue: queue.Queue, stop_event: threading.Event, progress: Progress, rich_task_id: TaskID):
     """Producer worker thread that adds tasks to the queue"""
@@ -99,7 +99,7 @@ def producer_worker(worker_id: int, task_queue: queue.Queue, stop_event: threadi
     # Remove the producer worker's log handler when done
     logger.remove(producer_worker_log_id)
 
-    return f"Producer-Worker-{worker_id} added {task_count} tasks"
+    return task_count
 
 def producer(task_queue: queue.Queue, num_workers: int, stop_event: threading.Event, progress: Progress, producer_task_ids: list):
     """Producer thread that manages multiple producer workers"""
@@ -111,15 +111,14 @@ def producer(task_queue: queue.Queue, num_workers: int, stop_event: threading.Ev
 
     if num_workers == 1:
         producer_logger.warning("Only one producer worker specified, using single-threaded mode")
-        result = producer_worker(1, task_queue, producer_worker_stop_event, progress, producer_task_ids[0])
-        total_tasks_added = int(result.split()[-2])  # Extract task count from result string
+        total_tasks_added = producer_worker(1, task_queue, producer_worker_stop_event, progress, producer_task_ids[0])
     else:
         producer_logger.debug("Starting producer workers")
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [
-                executor.submit(producer_worker, i+1, task_queue, producer_worker_stop_event, progress, producer_task_ids[i])
-                for i in range(num_workers)
-            ]
+            futures = {}
+            for i in range(num_workers):
+                future = executor.submit(producer_worker, i+1, task_queue, producer_worker_stop_event, progress, producer_task_ids[i])
+                futures[future] = i + 1  # Store future with worker ID
 
             # Wait for stop signal
             while not stop_event.is_set() and not shutdown_event.is_set():
@@ -130,14 +129,13 @@ def producer(task_queue: queue.Queue, num_workers: int, stop_event: threading.Ev
 
             total_tasks_added = 0
             for future in as_completed(futures):
+                worker_id = futures[future]
                 result = future.result()
-                producer_logger.debug(f"Producer worker finished: {result}")
-                # Extract task count from result string
-                task_count = int(result.split()[-2])
-                total_tasks_added += task_count
+                producer_logger.debug(f"Producer worker {worker_id} finished: {result}")
+                total_tasks_added += result
 
     producer_logger.info(f"Producer finished - total {total_tasks_added} tasks added by all workers")
-    return f"Producer finished after adding {total_tasks_added} tasks"
+    return total_tasks_added
 
 def consumer(task_queue: queue.Queue, num_workers: int, producer_stop_event: threading.Event, progress: Progress, consumer_task_ids: list):
     """Consumer thread that manages worker threads and progress display"""
@@ -149,15 +147,14 @@ def consumer(task_queue: queue.Queue, num_workers: int, producer_stop_event: thr
 
     if num_workers == 1:
         consumer_logger.warning("Only one consumer worker specified, using single-threaded mode")
-        result = consumer_worker(1, task_queue, progress, consumer_task_ids[0], worker_stop_event)
-        total_tasks_completed = int(result.split()[-2])  # Extract task count from result string
+        total_tasks_completed = consumer_worker(1, task_queue, progress, consumer_task_ids[0], worker_stop_event)
     else:
         consumer_logger.debug("Starting consumer workers")
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [
-                executor.submit(consumer_worker, i + 1, task_queue, progress, consumer_task_ids[i], worker_stop_event)
-                for i in range(num_workers)
-            ]
+            futures = {}
+            for i in range(num_workers):
+                future = executor.submit(consumer_worker, i + 1, task_queue, progress, consumer_task_ids[i], worker_stop_event)
+                futures[future] = i + 1  # Store future with worker ID
 
             # Wait for producer to finish or shutdown signal
             while not producer_stop_event.is_set() and not shutdown_event.is_set():
@@ -177,14 +174,13 @@ def consumer(task_queue: queue.Queue, num_workers: int, producer_stop_event: thr
 
             total_tasks_completed = 0
             for future in as_completed(futures):
+                worker_id = futures[future]
                 result = future.result()
-                consumer_logger.debug(f"Consumer worker finished: {result}")
-                # Extract task count from result string
-                task_count = int(result.split()[-2])
-                total_tasks_completed += task_count
+                consumer_logger.debug(f"Consumer worker {worker_id} finished: {result}")
+                total_tasks_completed += result
 
     consumer_logger.info(f"Consumer finished - total {total_tasks_completed} tasks completed by all workers")
-    return f"Consumer finished after completing {total_tasks_completed} tasks"
+    return total_tasks_completed
 
 def main(num_producer_workers: int = 1, num_consumer_workers: int = 1):
     global progress_instance
