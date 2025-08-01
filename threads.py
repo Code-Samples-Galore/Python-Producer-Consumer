@@ -38,7 +38,7 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
             task = task_queue.get(timeout=0.1)
         except queue.Empty:
             logger.debug(f"Worker {worker_id} found no tasks in queue, waiting...")
-            time.sleep(10)
+            time.sleep(1)
             continue
 
         worker_logger.debug(f"Worker {worker_id} processing task {task}")

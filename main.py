@@ -3,57 +3,48 @@ from typing_extensions import Annotated
 from enum import StrEnum
 
 
-class VariantChoice(StrEnum):
-    single = "single"
-    consumer_multi = "consumer-multi"
-    producer_multi = "producer-multi"
-    both_multi = "both-multi"
-    only_workers = "only-workers"
+class ArchitectureChoice(StrEnum):
+    threads = "threads"
+    producer_consumer = "producer-consumer"
+
 
 app = typer.Typer(help="Task processing system with different threading variants")
 
 @app.command()
 def run(
-    variant: Annotated[VariantChoice, typer.Argument(help="Choose which variant to run")] = VariantChoice.single
+    architecture: Annotated[ArchitectureChoice, typer.Argument(help="Choose architecture: threads or producer-consumer")] = ArchitectureChoice.threads,
+    producer_workers: Annotated[int, typer.Option("--producer-workers", help="Number of producer workers (only for producer-consumer)")] = 1,
+    consumer_workers: Annotated[int, typer.Option("--consumer-workers", help="Number of consumer workers (only for producer-consumer)")] = 1,
+    thread_workers: Annotated[int, typer.Option("--thread-workers", help="Number of thread workers (only for threads architecture)")] = 4
 ):
     """
-    Run the task processing system with the specified variant.
+    Run the task processing system with the specified architecture and configuration.
 
-    Variants:
-    - single: Single-threaded producer and consumer
-    - consumer-multi: Multi-threaded consumer, single-threaded producer
-    - producer-multi: Multi-threaded producer, single-threaded consumer
-    - both-multi: Multi-threaded producer and consumer
-    - only-workers: Workers process tasks from a pre-populated queue
+    Architectures:
+    - threads: Use thread-based worker architecture
+    - producer-consumer: Use producer-consumer architecture with configurable workers
     """
 
-    typer.echo(f"Starting {variant.value} variant...")
+    if architecture == ArchitectureChoice.threads:
+        typer.echo(f"Starting threads architecture with {thread_workers} workers...")
+        from threads import main
+        main(num_workers=thread_workers)
 
-    if variant == VariantChoice.single:
-        from single_threaded import main
-        main()
-    elif variant == VariantChoice.consumer_multi:
-        from consumer_multi_threaded import main
-        main()
-    elif variant == VariantChoice.producer_multi:
-        from producer_multi_threaded import main
-        main()
-    elif variant == VariantChoice.both_multi:
-        from multi_threaded import main
-        main()
-    elif variant == VariantChoice.only_workers:
-        from only_workers import main
-        main()
+    elif architecture == ArchitectureChoice.producer_consumer:
+        typer.echo(f"Starting producer-consumer architecture with {producer_workers} producer workers and {consumer_workers} consumer workers...")
+        from producer_consumer import main
+        main(num_producer_workers=producer_workers, num_consumer_workers=consumer_workers)
 
 @app.command()
 def list_variants():
-    """List all available variants with descriptions."""
-    typer.echo("Available variants:")
-    typer.echo("  single           - Single-threaded producer and consumer")
-    typer.echo("  consumer-multi   - Multi-threaded consumer, single-threaded producer")
-    typer.echo("  producer-multi   - Multi-threaded producer, single-threaded consumer")
-    typer.echo("  both-multi       - Multi-threaded producer and consumer")
-    typer.echo("  only-workers     - Workers process tasks from a pre-populated queue")
+    """List all available architectures with descriptions."""
+    typer.echo("Available architectures:")
+    typer.echo("  threads           - Thread-based worker architecture")
+    typer.echo("  producer-consumer - Producer-consumer architecture with configurable workers")
+    typer.echo("")
+    typer.echo("Examples:")
+    typer.echo("  python main.py run threads --thread-workers 8")
+    typer.echo("  python main.py run producer-consumer --producer-workers 2 --consumer-workers 4")
 
 if __name__ == "__main__":
     app()
