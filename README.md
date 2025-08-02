@@ -92,3 +92,7 @@ python main.py run threads --thread-workers 12
 # Use producer-consumer for continuous task generation and processing
 python main.py run producer-consumer --producer-workers 3 --consumer-workers 6
 ```
+
+## 📄 License
+
+MIT License
