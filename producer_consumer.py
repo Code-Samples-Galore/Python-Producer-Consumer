@@ -36,7 +36,7 @@ def consumer_worker(worker_id: int, task_queue: queue.Queue, progress: Progress,
 
     # Use global logger with worker context
     worker_logger = logger.bind(worker_id=worker_id)
-    worker_logger.info(f"Consumer-Worker-{worker_id} started")
+    worker_logger.info("Consumer-Worker-{} started", worker_id)
 
     completed_tasks = 0
 
@@ -44,11 +44,11 @@ def consumer_worker(worker_id: int, task_queue: queue.Queue, progress: Progress,
         try:
             task = task_queue.get(timeout=0.1)
         except queue.Empty:
-            logger.debug(f"Worker {worker_id} found no tasks in queue, waiting...")
+            logger.debug("Worker {} found no tasks in queue, waiting...", worker_id)
             time.sleep(1)
             continue
 
-        worker_logger.debug(f"Processing task {task}")
+        worker_logger.debug("Processing task {}", task)
         # Simulate work for this task
         work_steps = random.randint(5, 15)
         for _ in range(work_steps):
@@ -59,9 +59,9 @@ def consumer_worker(worker_id: int, task_queue: queue.Queue, progress: Progress,
         progress.update(rich_task_id, advance=1)
         completed_tasks += 1
         task_queue.task_done()
-        worker_logger.debug(f"Completed task {task}")
+        worker_logger.debug("Completed task {}", task)
 
-    worker_logger.info(f"Consumer-Worker-{worker_id} stopping after completing {completed_tasks} tasks")
+    worker_logger.info("Consumer-Worker-{} stopping after completing {} tasks", worker_id, completed_tasks)
 
     # Remove the worker's log handler when done
     logger.remove(worker_log_id)
@@ -77,7 +77,7 @@ def producer_worker(worker_id: int, task_queue: queue.Queue, stop_event: threadi
 
     # Use global logger with producer worker context
     producer_worker_logger = logger.bind(producer_worker_id=worker_id)
-    producer_worker_logger.info(f"Producer-Worker-{worker_id} started")
+    producer_worker_logger.info("Producer-Worker-{} started", worker_id)
 
     task_count = 0
     while not stop_event.is_set() and not shutdown_event.is_set():
@@ -89,12 +89,12 @@ def producer_worker(worker_id: int, task_queue: queue.Queue, stop_event: threadi
                 # Use worker_id to create unique task IDs across producer workers
                 unique_task_id = f"{worker_id}-{task_count}"
                 task_queue.put(unique_task_id)
-                producer_worker_logger.debug(f"Added task {unique_task_id} to queue")
+                producer_worker_logger.debug("Added task {} to queue", unique_task_id)
                 progress.update(rich_task_id, advance=1)
 
         time.sleep(random.uniform(0.05, 0.2))  # Check interval
 
-    producer_worker_logger.info(f"Producer-Worker-{worker_id} stopping after adding {task_count} tasks")
+    producer_worker_logger.info("Producer-Worker-{} stopping after adding {} tasks", worker_id, task_count)
 
     # Remove the producer worker's log handler when done
     logger.remove(producer_worker_log_id)
@@ -105,7 +105,7 @@ def producer(task_queue: queue.Queue, num_workers: int, stop_event: threading.Ev
     """Producer thread that manages multiple producer workers"""
     # Use global logger with producer context
     producer_logger = logger.bind(component="producer")
-    producer_logger.info(f"Producer started with {num_workers} workers")
+    producer_logger.info("Producer started with {} workers", num_workers)
 
     producer_worker_stop_event = threading.Event()
 
@@ -131,17 +131,17 @@ def producer(task_queue: queue.Queue, num_workers: int, stop_event: threading.Ev
             for future in as_completed(futures):
                 worker_id = futures[future]
                 result = future.result()
-                producer_logger.debug(f"Producer worker {worker_id} finished: {result}")
+                producer_logger.debug("Producer worker {} finished: {}", worker_id, result)
                 total_tasks_added += result
 
-    producer_logger.info(f"Producer finished - total {total_tasks_added} tasks added by all workers")
+    producer_logger.info("Producer finished - total {} tasks added by all workers", total_tasks_added)
     return total_tasks_added
 
 def consumer(task_queue: queue.Queue, num_workers: int, producer_stop_event: threading.Event, progress: Progress, consumer_task_ids: list):
     """Consumer thread that manages worker threads and progress display"""
     # Use global logger with consumer context
     consumer_logger = logger.bind(component="consumer")
-    consumer_logger.info(f"Consumer started with {num_workers} workers")
+    consumer_logger.info("Consumer started with {} workers", num_workers)
 
     worker_stop_event = threading.Event()
 
@@ -176,10 +176,10 @@ def consumer(task_queue: queue.Queue, num_workers: int, producer_stop_event: thr
             for future in as_completed(futures):
                 worker_id = futures[future]
                 result = future.result()
-                consumer_logger.debug(f"Consumer worker {worker_id} finished: {result}")
+                consumer_logger.debug("Consumer worker {} finished: {}", worker_id, result)
                 total_tasks_completed += result
 
-    consumer_logger.info(f"Consumer finished - total {total_tasks_completed} tasks completed by all workers")
+    consumer_logger.info("Consumer finished - total {} tasks completed by all workers", total_tasks_completed)
     return total_tasks_completed
 
 def main(num_producer_workers: int = 1, num_consumer_workers: int = 1):
@@ -202,12 +202,12 @@ def main(num_producer_workers: int = 1, num_consumer_workers: int = 1):
     task_queue = queue.Queue()
     for i in range(20):  # Reduced initial tasks since producer will add more
         task_queue.put(f"initial-{i}")
-    logger.info(f"Initialized queue with 20 initial tasks")
+    logger.info("Initialized queue with 20 initial tasks")
 
     producer_stop_event = threading.Event()
 
     try:
-        logger.info(f"Starting producer ({num_producer_workers} workers) and consumer ({num_consumer_workers} workers) threads")
+        logger.info("Starting producer ({}) workers and consumer ({}) workers threads", num_producer_workers, num_consumer_workers)
 
         # Create a single shared Progress instance
         with Progress(
@@ -260,8 +260,8 @@ def main(num_producer_workers: int = 1, num_consumer_workers: int = 1):
         progress_instance = None
 
         # Log results after Progress context exits to avoid interference
-        logger.info(f"Producer result: {producer_result}")
-        logger.info(f"Consumer result: {consumer_result}")
+        logger.info("Producer result: {}", producer_result)
+        logger.info("Consumer result: {}", consumer_result)
         logger.info("All tasks completed!")
 
     except KeyboardInterrupt:

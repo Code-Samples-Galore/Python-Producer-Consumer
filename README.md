@@ -1,32 +1,32 @@
-# Python Producer-Consumer Example
+# 🧵 Python Producer-Consumer Example
 
-## Overview
+## 📝 Overview
 This project demonstrates different approaches to multithreading in Python, focusing on producer-consumer patterns and worker threads. It includes two main architectures: a thread-based worker system and a producer-consumer system with configurable workers.
 
-## Project Structure
+## 📁 Project Structure
 - `main.py`: Entry point for running the project with CLI interface.
 - `threads.py`: Thread-based worker architecture that processes tasks from a pre-populated queue.
 - `producer_consumer.py`: Producer-consumer architecture with configurable producer and consumer workers.
 - `logs/`: Contains log files for each worker and process.
 - `requirements.txt`: Python dependencies.
 
-## Architectures
+## 🏗️ Architectures
 
-### Threads Architecture
+### 🧶 Threads Architecture
 - **Description**: Workers process tasks from a pre-populated queue
 - **Use case**: When you have a known set of tasks to process
 - **Configuration**: Number of thread workers (default: 4)
 
-### Producer-Consumer Architecture  
+### 🔄 Producer-Consumer Architecture  
 - **Description**: Separate producer and consumer workers with dynamic task generation
 - **Use case**: When tasks are generated continuously and need to be processed in real-time
 - **Configuration**: 
   - Number of producer workers (default: 1)
   - Number of consumer workers (default: 1)
 
-## Usage
+## ▶️ Usage
 
-### Command Line Interface
+### 💻 Command Line Interface
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt
@@ -52,14 +52,14 @@ This project demonstrates different approaches to multithreading in Python, focu
    python main.py list-variants
    ```
 
-### Direct Script Execution
+### 🏃 Direct Script Execution
 You can also run the scripts directly:
 ```bash
 python threads.py
 python producer_consumer.py
 ```
 
-## Logging
+## 🪵 Logging
 Each script writes comprehensive logs to the `logs/` directory:
 - `app.log`: General application logs
 - `worker.log`: Thread worker logs (threads architecture)
@@ -68,26 +68,26 @@ Each script writes comprehensive logs to the `logs/` directory:
 - `producer_worker_N.log`: Individual producer worker logs
 - `consumer_worker_N.log`: Individual consumer worker logs
 
-## Features
+## ✨ Features
 - **Rich Progress Bars**: Real-time progress tracking for all workers
 - **Graceful Shutdown**: Ctrl+C handling for clean termination
 - **Configurable Workers**: Adjust the number of workers for different architectures
 - **Comprehensive Logging**: Separate log files for different components and workers
 - **Signal Handling**: Proper cleanup on shutdown signals
 
-## Requirements
+## 📦 Requirements
 - Python 3.12 or higher
 - Dependencies listed in `requirements.txt`
 
-## Examples
+## 💡 Examples
 
-### High Throughput Processing
+### ⚡ High Throughput Processing
 ```bash
 # Use multiple thread workers for CPU-intensive tasks
 python main.py run threads --thread-workers 12
 ```
 
-### Real-time Task Processing
+### ⏱️ Real-time Task Processing
 ```bash
 # Use producer-consumer for continuous task generation and processing
 python main.py run producer-consumer --producer-workers 3 --consumer-workers 6

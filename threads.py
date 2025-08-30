@@ -29,7 +29,7 @@ def signal_handler(signum, frame):
 def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_task_id: TaskID):
     """Worker thread that processes tasks from the queue"""
     worker_logger = logger.bind(component="worker")
-    worker_logger.info(f"Worker {worker_id} started")
+    worker_logger.info("Worker {} started", worker_id)
 
     completed_tasks = 0
 
@@ -37,10 +37,10 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
         try:
             task = task_queue.get(timeout=0.1)
         except queue.Empty:
-            logger.debug(f"Worker {worker_id} found no tasks in queue...")
+            logger.debug("Worker {} found no tasks in queue...", worker_id)
             break
 
-        worker_logger.debug(f"Worker {worker_id} processing task {task}")
+        worker_logger.debug("Worker {} processing task {}", worker_id, task)
         # Simulate work for this task
         work_steps = random.randint(5, 15)
         for _ in range(work_steps):
@@ -51,9 +51,9 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
         progress.update(worker_task_id, advance=1)
         completed_tasks += 1
         task_queue.task_done()
-        worker_logger.debug(f"Worker {worker_id} completed task {task}")
+        worker_logger.debug("Worker {} completed task {}", worker_id, task)
 
-    worker_logger.info(f"Worker {worker_id} stopping after completing {completed_tasks} tasks")
+    worker_logger.info("Worker {} stopping after completing {} tasks", worker_id, completed_tasks)
     return completed_tasks
 
 def main(num_workers: int = 4):
@@ -77,10 +77,10 @@ def main(num_workers: int = 4):
     total_tasks = 50  # Create 50 tasks to process
     for i in range(total_tasks):
         task_queue.put(f"task-{i+1}")
-    logger.info(f"Created queue with {total_tasks} tasks")
+    logger.info("Created queue with {} tasks", total_tasks)
 
     try:
-        logger.info(f"Starting {num_workers} worker threads")
+        logger.info("Starting {} worker threads", num_workers)
 
         # Create a single shared Progress instance
         with Progress(
@@ -133,7 +133,7 @@ def main(num_workers: int = 4):
 
         # Log results after Progress context exits to avoid interference
         for worker_id, result in results.items():
-            logger.info(f"Worker {worker_id} result: {result}")
+            logger.info("Worker {} result: {}", worker_id, result)
         logger.info("All tasks completed!")
 
     except KeyboardInterrupt:
@@ -143,8 +143,8 @@ def main(num_workers: int = 4):
         if 'worker_futures' in locals():
             for future in worker_futures:
                 try:
-                    result = future.result(timeout=0.1)
-                    logger.info(f"Worker result: {result}")
+                    result = worker_futures[future].result(timeout=0.1)
+                    logger.info("Worker result: {}", result)
                 except:
                     pass
     finally:
