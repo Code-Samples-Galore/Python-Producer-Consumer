@@ -1,5 +1,5 @@
 import typer
-from typing_extensions import Annotated
+from typing import Annotated
 from enum import StrEnum
 
 
