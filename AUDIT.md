@@ -293,9 +293,9 @@ second forces a stop. As defence in depth, `main()` and both coordinators set
 their stop flags in a `finally`, so even an exception escaping a wait loop
 cannot strand the worker threads.
 
-Verified with **27 consecutive SIGINT runs** at 2 producers / 4 consumers, all
-exiting cleanly (the pre-fix code wedged once in 33). Second Ctrl+C aborts in
-~1 s.
+Verified with **40 consecutive SIGINT runs** at 2 producers / 4 consumers, all
+exiting cleanly, every drain completing in under 20 s (the pre-fix code wedged
+once in 33 and had to be killed). Second Ctrl+C aborts in ~1 s.
 
 ---
 
@@ -631,7 +631,7 @@ Everything below was run against the fixed code on Python 3.11.15.
 | Producer/consumer accounting, full drain | 20 seeded + 206 produced = **226 consumed**, queue empty |
 | Producer/consumer accounting, forced abort | 134 + 20 = 154 vs 65 consumed + 87 queued + 2 abandoned mid-work |
 | Backpressure | 206 produced in 10 s (was 922 in 20 s unbounded); queue never exceeds 100 |
-| SIGINT shutdown | **27/27 consecutive runs exited cleanly** (2 producers / 4 consumers) |
+| SIGINT shutdown | **40/40 consecutive runs exited cleanly** (2 producers / 4 consumers) |
 | Second SIGINT | Aborts in ~1 s |
 | Coordinator crash | Logged and exits in ~3 s (previously hung indefinitely) |
 | Sink leak on worker exception | **0 handlers leaked** (was 1 per failure) |
