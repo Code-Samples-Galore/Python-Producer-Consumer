@@ -13,9 +13,9 @@ app = typer.Typer(help="Task processing system with different threading variants
 @app.command()
 def run(
     architecture: Annotated[ArchitectureChoice, typer.Argument(help="Choose architecture: threads or producer-consumer")] = ArchitectureChoice.threads,
-    producer_workers: Annotated[int, typer.Option("--producer-workers", help="Number of producer workers (only for producer-consumer)")] = 1,
-    consumer_workers: Annotated[int, typer.Option("--consumer-workers", help="Number of consumer workers (only for producer-consumer)")] = 1,
-    thread_workers: Annotated[int, typer.Option("--thread-workers", help="Number of thread workers (only for threads architecture)")] = 4
+    producer_workers: Annotated[int, typer.Option("--producer-workers", min=1, help="Number of producer workers (only for producer-consumer)")] = 1,
+    consumer_workers: Annotated[int, typer.Option("--consumer-workers", min=1, help="Number of consumer workers (only for producer-consumer)")] = 1,
+    thread_workers: Annotated[int, typer.Option("--thread-workers", min=1, help="Number of thread workers (only for threads architecture)")] = 4
 ):
     """
     Run the task processing system with the specified architecture and configuration.

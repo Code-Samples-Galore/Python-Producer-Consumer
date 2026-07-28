@@ -29,29 +29,24 @@ There is no test suite and no linter configured. Verify changes by running the
 commands above and reading `logs/`.
 
 **`producer-consumer` never terminates on its own.** Always run it under a
-timeout, or it will hang the session. Include `--kill-after`, because SIGINT
-alone is not reliable here (see below):
+timeout, or it will hang the session:
 
 ```bash
-timeout -s INT --kill-after=15 20 python main.py run producer-consumer --producer-workers 2 --consumer-workers 2
+timeout -s INT --kill-after=60 10 python main.py run producer-consumer --producer-workers 2 --consumer-workers 4
 ```
 
-**Ctrl+C sometimes fails to stop it** — seen once in 33 runs at 2 producers /
-4 consumers. The signal handler prints and logs *before* setting
-`shutdown_event`; if that work raises, the exception escapes the handler, the
-flag is never set, and `main()` blocks forever in `ThreadPoolExecutor.__exit__`
-joining threads that are still polling it. A second Ctrl+C will not help —
-`shutdown(wait=True)` is not interruptible. Diagnose with
-`py-spy dump --pid <pid>` rather than guessing, then `kill -9` the PID.
+Budget generously for the timeout: SIGINT starts a **drain**, which takes as
+long as the backlog needs — about 9 s with four consumers, 30 s with one. That
+is working as designed, not a hang. Send a second SIGINT to abandon the queue
+and exit in about a second.
 
-Kill by PID, not `pkill -f 'main.py run ...'` — that pattern also matches the
-shell running the command and will kill your own session.
+When killing stray runs, kill by PID. `pkill -f 'main.py run ...'` also matches
+the shell running the command and will kill your own session.
 
 ## Architecture
 
 Two independent implementations sharing no code. `main.py` is a Typer CLI that
-lazily imports whichever one you select — the import is inside the command body
-on purpose, since each module reconfigures global logging at import time.
+lazily imports whichever one you select.
 
 **`threads.py`** — pull model. `main()` pre-populates a queue with 50 tasks,
 starts N workers in a `ThreadPoolExecutor`, and each worker loops
@@ -68,24 +63,56 @@ main()
 
 `producer()` and `consumer()` are *coordinators*: each runs on the top-level
 2-slot executor, owns a nested `ThreadPoolExecutor` of its own workers, parks
-until told to stop, then sets its private stop event and aggregates worker
-return values.
+until told to stop, then releases its workers and aggregates their return
+values. There is no separate single-worker code path — one worker uses the same
+executor as many, so there is one lifecycle to reason about.
 
-Three separate `threading.Event`s control shutdown, and the distinction matters:
+### Shutdown
 
-| Event | Set by | Stops |
+Four `threading.Event`s, and the distinction between them is the heart of this
+module:
+
+| Event | Set by | Meaning |
 |---|---|---|
-| `shutdown_event` (module-global) | SIGINT handler | everything |
-| `producer_stop_event` | `main()` | the producer coordinator |
-| `producer_worker_stop_event` / `worker_stop_event` | each coordinator | that coordinator's own workers |
+| `shutdown_event` (module-global) | first SIGINT | stop producing, drain the backlog |
+| `force_shutdown_event` (module-global) | second SIGINT | abandon queued work, stop now |
+| `producer_stop_event` | `main()` | release the producer coordinator |
+| `drain_event` | `consumer()` | consumers exit once the queue runs dry |
 
-Note that `num_workers == 1` takes a **different code path** in both
-coordinators — it calls the worker function inline instead of using an
-executor. Any change to worker lifecycle must be applied to both branches.
+Consumer workers loop until `force_shutdown_event`, and additionally break when
+`drain_event` is set *and* the queue is empty — that second condition is what
+makes the backlog finish instead of being dropped.
+
+Three invariants hold this together. Breaking any of them reintroduces a bug
+that took real effort to diagnose:
+
+1. **`signal_handler` only flips flags.** No logging, printing, or locking. It
+   runs on the main thread between bytecodes; anything that can block or raise
+   there will strand every worker thread. This previously hung the process
+   permanently after Ctrl+C.
+2. **Stop flags are set in `finally`.** `main()` and both coordinators release
+   their workers on the way out no matter how they leave their wait loop, so an
+   escaping exception can never leave `ThreadPoolExecutor.__exit__` joining
+   threads that are waiting for a flag nobody set.
+3. **`main()`'s wait loop polls both futures.** An exception in a coordinator is
+   captured in its `Future` and is otherwise invisible; without the poll the
+   app spins forever with no error.
+
+If a run ever does wedge, `py-spy dump --pid <pid>` tells you which invariant
+broke — far faster than reasoning about it.
+
+### Backpressure
+
+`QUEUE_MAXSIZE = 100` bounds the queue, and producers use
+`put(task, timeout=0.5)` with a `queue.Full` backoff. Producers outrun consumers
+by roughly 7× by construction, so without the bound the backlog grows without
+limit. Keep the queue bounded — it is also what makes the drain finish in
+seconds instead of minutes.
 
 ## Logging
 
-`loguru`, configured at **module import time**, with routing by bound context
+`loguru`, configured in `setup_logging()` and called from `main()` — importing
+either module must not touch global logging state. Routing is by bound context
 rather than by logger instance:
 
 - `logger.bind(component="producer"|"consumer"|"worker")` → routes to `producer.log` / `consumer.log` / `worker.log`
@@ -93,26 +120,15 @@ rather than by logger instance:
 - Everything at DEBUG and above also goes to `app.log`
 - The console sink is added in `main()` and filters *out* anything carrying worker or component context, so only main-thread messages reach stderr
 
-**Use the bound logger inside workers**, not the module-level `logger`. Calling
-bare `logger.debug(...)` in a worker silently drops the record from its
-component and per-worker files — an existing bug, see `AUDIT.md` finding #11.
+**Use the bound logger inside workers**, not the module-level `logger`. A bare
+`logger.debug(...)` in a worker carries no context and silently misses its
+component and per-worker files.
 
-Log sinks are added and removed *per worker at runtime*. Every `logger.add()`
-must have a matching `logger.remove()`, or the handler and its file descriptor
-leak.
+Per-worker sinks are added and removed at runtime, inside `try` / `finally`.
+Keep them that way — an unmatched `logger.add()` leaks the handler and its open
+file descriptor for the life of the process.
 
 `logs/` is gitignored and safe to delete between runs.
-
-## Before changing concurrency code
-
-`AUDIT.md` catalogues 19 known defects with reproductions. Read it first — an
-odd-looking construct here is more likely an already-documented bug than
-something to preserve. Notably: the queue is unbounded and grows ~7× faster
-than consumers drain it, worker-thread exceptions are swallowed and leave
-`main()` spinning, and the signal handler can strand the process on Ctrl+C.
-
-If you fix something listed there, update its entry rather than leaving the
-audit stale.
 
 ## Conventions
 
@@ -121,6 +137,18 @@ audit stale.
 - All progress reporting goes through the single shared `rich` `Progress`
   instance created in `main()`; workers receive a `TaskID` and only ever call
   `progress.update(task_id, advance=1)`
+- Count a task as completed only when it actually finished — work interrupted by
+  shutdown is logged and skipped, never counted
 - Prefer the standard library — the dependency list is deliberately three
   entries long, and `main.py` imports `Annotated` from `typing` (not
   `typing_extensions`) to keep it that way
+
+## Before changing concurrency code
+
+`AUDIT.md` records 19 findings against this codebase, 18 of them now fixed, each
+with what was wrong and how it was addressed. Read the relevant entry before
+touching shutdown, queueing, or logging — most of the non-obvious code here is
+the fix for something specific, and the entry explains what.
+
+If you change something covered there, update its entry rather than leaving the
+audit stale.

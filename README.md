@@ -9,7 +9,7 @@ This project demonstrates different approaches to multithreading in Python, focu
 - `producer_consumer.py`: Producer-consumer architecture with configurable producer and consumer workers.
 - `logs/`: Contains log files for each worker and process (created at runtime, not tracked by git).
 - `requirements.txt`: Python dependencies.
-- `AUDIT.md`: Code audit — known bugs and performance issues.
+- `AUDIT.md`: Code audit — 19 findings, what was wrong and how each was fixed.
 - `CLAUDE.md`: Orientation notes for Claude Code.
 
 ## 🏗️ Architectures
@@ -28,9 +28,8 @@ This project demonstrates different approaches to multithreading in Python, focu
   - Number of consumer workers (default: 1)
 - **Termination**: Runs until you press **Ctrl+C** — producers generate tasks
   indefinitely, so there is no natural end point
-
-> ⚠️ Worker counts must be **1 or greater**. The CLI does not currently reject
-> `0`, and passing it hangs the application. See `AUDIT.md`.
+- **Backpressure**: The queue is capped at 100 tasks; producers block when it is
+  full rather than letting the backlog grow without limit
 
 ## ▶️ Usage
 
@@ -79,17 +78,29 @@ Each script writes comprehensive logs to the `logs/` directory:
 
 ## ✨ Features
 - **Rich Progress Bars**: Real-time progress tracking for all workers
-- **Graceful Shutdown**: Ctrl+C handling for clean termination ⚠️ *see below*
+- **Two-Stage Shutdown**: First Ctrl+C drains the queue, second abandons it
+- **Backpressure**: A bounded queue keeps memory flat during long runs
 - **Configurable Workers**: Adjust the number of workers for different architectures
 - **Comprehensive Logging**: Separate log files for different components and workers
-- **Signal Handling**: Proper cleanup on shutdown signals ⚠️ *see below*
+- **Signal Handling**: Proper cleanup on shutdown signals
 
-> ⚠️ **Ctrl+C occasionally hangs the producer-consumer run.** The signal handler
-> prints and logs before setting the shutdown flag; if that work raises, the
-> flag is never set and the process waits forever on threads that will never
-> stop. Rare — seen once in about 30 runs with 2 producers / 4 consumers — but
-> a second Ctrl+C will not help; kill the process with `SIGKILL`. Details and
-> fix in `AUDIT.md`.
+### ⏹️ Stopping a producer-consumer run
+
+| Action | Effect |
+|---|---|
+| First **Ctrl+C** | Producers stop; consumers finish the queued backlog, then exit |
+| Second **Ctrl+C** | Abandon whatever is still queued and stop now |
+
+The drain is real work, so it takes time proportional to the backlog — roughly
+9 s with four consumers, or 30 s with one, for a full 100-task queue. The
+progress bars keep moving while it runs; press Ctrl+C again if you would rather
+not wait. The final log line always reports what actually happened:
+
+```
+Producer result: 206 tasks produced
+Consumer result: 226 tasks consumed
+Shutdown complete - queue fully drained
+```
 
 ## 📦 Requirements
 - Python 3.11 or higher (`enum.StrEnum` was added in 3.11)
@@ -114,16 +125,17 @@ python main.py run threads --thread-workers 12
 python main.py run producer-consumer --producer-workers 3 --consumer-workers 6
 ```
 
-> 📌 Producers currently outpace consumers by roughly 7×, and the task queue is
-> unbounded — so the backlog grows for as long as the run continues. See
-> `AUDIT.md`.
+> 📌 Producers generate work far faster than consumers can process it, so the
+> queue sits at its 100-task cap and producers block on `put()`. That is the
+> backpressure doing its job — adding consumers, not producers, is what raises
+> throughput here.
 
-## 🔍 Known Issues
-This repository is a teaching example, and its concurrency code has known
-defects — including unbounded queue growth, swallowed worker exceptions, and a
-signal handler that can leave the process hung after Ctrl+C. `AUDIT.md`
-documents 19 of them, each with a reproduction and a suggested fix. Read it
-before treating any pattern here as a reference implementation.
+## 🔍 Audit
+`AUDIT.md` records a full audit of this codebase: 19 findings, each with what
+was wrong, why it mattered, and what was done about it. 18 are fixed; one is
+accepted with a rationale. Worth reading alongside the code — several of the
+findings (backpressure, drain-before-exit, keeping signal handlers trivial) are
+the points these examples exist to make.
 
 ## 📄 License
 
