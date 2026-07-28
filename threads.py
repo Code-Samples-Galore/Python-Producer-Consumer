@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TaskID
 import time
 import random
@@ -9,21 +9,22 @@ import sys
 from loguru import logger
 import os
 
-# Configure loguru with filters
-logger.remove()  # Remove default handler
-logger.add("logs/app.log", rotation="10 MB", retention="7 days", level="DEBUG")
-logger.add("logs/worker.log", filter=lambda record: record["extra"].get("component") == "worker", level="DEBUG")
-
 # Global event for graceful shutdown
 shutdown_event = threading.Event()
-# Global progress instance for signal handler
-progress_instance = None
+
+
+def setup_logging():
+    """Configure loguru sinks. Called from main() so that importing this
+    module does not reconfigure logging for the whole process."""
+    os.makedirs("logs", exist_ok=True)
+    logger.remove()  # Remove default handler
+    logger.add("logs/app.log", rotation="10 MB", retention="7 days", level="DEBUG")
+    logger.add("logs/worker.log", filter=lambda record: record["extra"].get("component") == "worker", level="DEBUG")
 
 def signal_handler(signum, frame):
-    """Handle Ctrl+C signal for graceful shutdown"""
-    if progress_instance:
-        progress_instance.console.print("\n[yellow]Shutdown signal received. Gracefully shutting down...[/yellow]")
-    logger.info("Shutdown signal received. Gracefully shutting down...")
+    """Handle Ctrl+C. Signal handlers run on the main thread between
+    bytecodes, so this only flips the flag - no logging, printing or locking.
+    Anything that can block or raise here would strand the worker threads."""
     shutdown_event.set()
 
 def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_task_id: TaskID):
@@ -37,27 +38,41 @@ def worker(worker_id: int, task_queue: queue.Queue, progress: Progress, worker_t
         try:
             task = task_queue.get(timeout=0.1)
         except queue.Empty:
-            logger.debug("Worker {} found no tasks in queue...", worker_id)
+            # The queue is populated up front, so an empty queue means the
+            # work is done.
+            worker_logger.debug("Worker {} found no tasks in queue...", worker_id)
             break
 
-        worker_logger.debug("Worker {} processing task {}", worker_id, task)
-        # Simulate work for this task
-        work_steps = random.randint(5, 15)
-        for _ in range(work_steps):
-            if shutdown_event.is_set():
-                break
-            time.sleep(random.uniform(0.01, 0.05))
+        try:
+            worker_logger.debug("Worker {} processing task {}", worker_id, task)
+            # Simulate work for this task
+            interrupted = False
+            work_steps = random.randint(5, 15)
+            for _ in range(work_steps):
+                if shutdown_event.is_set():
+                    interrupted = True
+                    break
+                time.sleep(random.uniform(0.01, 0.05))
 
-        progress.update(worker_task_id, advance=1)
-        completed_tasks += 1
-        task_queue.task_done()
-        worker_logger.debug("Worker {} completed task {}", worker_id, task)
+            if interrupted:
+                # Abandoned part-way through - do not count it as done.
+                worker_logger.debug("Worker {} abandoned task {} during shutdown", worker_id, task)
+                continue
+
+            progress.update(worker_task_id, advance=1)
+            completed_tasks += 1
+            worker_logger.debug("Worker {} completed task {}", worker_id, task)
+        finally:
+            task_queue.task_done()
 
     worker_logger.info("Worker {} stopping after completing {} tasks", worker_id, completed_tasks)
     return completed_tasks
 
 def main(num_workers: int = 4):
-    global progress_instance
+    if num_workers < 1:
+        raise ValueError("Worker count must be at least 1")
+
+    setup_logging()
 
     # Add console handler for main function only
     main_logger_id = logger.add(sys.stderr, level="INFO",
@@ -69,15 +84,14 @@ def main(num_workers: int = 4):
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Create logs directory if it doesn't exist
-    os.makedirs("logs", exist_ok=True)
-
     # Create task queue and populate with all tasks upfront
     task_queue = queue.Queue()
     total_tasks = 50  # Create 50 tasks to process
     for i in range(total_tasks):
         task_queue.put(f"task-{i+1}")
     logger.info("Created queue with {} tasks", total_tasks)
+
+    results = {}
 
     try:
         logger.info("Starting {} worker threads", num_workers)
@@ -89,8 +103,6 @@ def main(num_workers: int = 4):
             TextColumn("{task.completed} tasks"),
             TimeElapsedColumn(),
         ) as progress:
-            progress_instance = progress  # Make it accessible to signal handler
-
             # Create progress tasks for each worker
             worker_task_ids = []
             for i in range(num_workers):
@@ -106,49 +118,32 @@ def main(num_workers: int = 4):
                 worker_futures = {}
                 for i in range(num_workers):
                     future = executor.submit(worker, i+1, task_queue, progress, worker_task_ids[i])
-                    worker_futures[i+1] = future
+                    worker_futures[future] = i + 1
 
-                # Wait for all workers to complete or shutdown signal
-                results = {}
-                for worker_id, future in worker_futures.items():
+                # Workers stop on their own once the queue is empty or a
+                # shutdown is signalled, so simply collect their counts.
+                for future in as_completed(worker_futures):
+                    worker_id = worker_futures[future]
                     try:
-                        # Use a short timeout to check for shutdown periodically
-                        result = future.result(timeout=0.5)
-                        results[worker_id] = result
-                    except TimeoutError:
-                        # If shutdown was signaled, still try to get the result
-                        if shutdown_event.is_set():
-                            try:
-                                result = future.result(timeout=1.0)  # Give it a bit more time
-                                results[worker_id] = result
-                            except TimeoutError:
-                                results[worker_id] = "Worker timed out during shutdown"
-                        else:
-                            # Continue waiting if no shutdown signal
-                            result = future.result()
-                            results[worker_id] = result
-
-        # Clear the global reference
-        progress_instance = None
+                        results[worker_id] = future.result()
+                    except Exception as exc:
+                        logger.error("Worker {} failed: {}", worker_id, exc)
+                        results[worker_id] = 0
 
         # Log results after Progress context exits to avoid interference
-        for worker_id, result in results.items():
-            logger.info("Worker {} result: {}", worker_id, result)
-        logger.info("All tasks completed!")
+        for worker_id in sorted(results):
+            logger.info("Worker {} result: {} tasks", worker_id, results[worker_id])
+
+        remaining = task_queue.qsize()
+        if remaining:
+            logger.warning("Stopped early - {} of {} tasks left unprocessed", remaining, total_tasks)
+        else:
+            logger.info("All tasks completed!")
 
     except KeyboardInterrupt:
         logger.warning("Forced shutdown...")
         shutdown_event.set()
-        # Still try to collect any available results
-        if 'worker_futures' in locals():
-            for future in worker_futures:
-                try:
-                    result = worker_futures[future].result(timeout=0.1)
-                    logger.info("Worker result: {}", result)
-                except:
-                    pass
     finally:
-        progress_instance = None
         logger.info("Application shutdown complete")
         logger.remove(main_logger_id)
 
